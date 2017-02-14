@@ -20,26 +20,30 @@ const char* piece_to_string(int8_t piece) {
 std::string Board::toTBGEncoding() const {
 	std::stringstream ss;
 
-	ss << moveno << "," << (playerTurn > 0 ? "w" : "b");
+	ss << moveno << "," << (playerTurn > 0 ? "w" : "b") << "," << SIZE << ",";
+	ss << piecesleft[0] << "," << piecesleft[1] << "," << capstones[0] << "," << capstones[1];
+
+	bool isFirst = true;
 
 	for (int y = 0; y < 5; ++y) {
 		for (int x = 0; x < 5; ++x) {
-			ss << ",";
+			ss << (isFirst ? ";" : ",");
+			isFirst = false;
 			const Stack& stack = stacks[x + y * Board::SIZE];
-			for (int i = 0; i < stack.size() - 1; ++i) {
+			for (int i = 0; i < stack.size(); ++i) {
 				if (stack.stack()[i])
-					ss << "F";
+					ss << "w";
 				else
-					ss << "f";
+					ss << "b";
 			}
 			if (stack.size() >= 1) {
 				switch (stack.top()) {
-				case PIECE_FLAT: ss << "F"; break ;
-				case -PIECE_FLAT: ss << "f"; break ;
-				case PIECE_WALL: ss << "W"; break ;
-				case -PIECE_WALL: ss << "w"; break ;
-				case PIECE_CAP: ss << "C"; break ;
-				case -PIECE_CAP: ss << "c"; break ;
+				case PIECE_FLAT:
+				case -PIECE_FLAT: ss << "F"; break ;
+				case PIECE_WALL:
+				case -PIECE_WALL: ss << "S"; break ;
+				case PIECE_CAP:
+				case -PIECE_CAP: ss << "C"; break ;
 				}
 			}
 		}
@@ -107,6 +111,10 @@ struct MoveInternal {
 	const static int8_t TYPE_SPLIT = 1;
 	const static int8_t TYPE_SPLIT_SQUASH = 2;
 
+	MoveInternal() { bzero(this, sizeof(MoveInternal)); };
+
+	uint32_t moveid;
+
 	int8_t type;
 
 	int8_t position;
@@ -163,10 +171,36 @@ struct MoveInternal {
 };
 
 std::vector<MoveInternal> allMoves;
-MoveInternal placements;
+MoveInternal placements[Board::SQUARES * 3];
 
 struct _InitializeMoveCache {
 	_InitializeMoveCache() {
+		// placements.
+		for (int i = 0; i < Board::SQUARES; ++i) {
+			MoveInternal move;
 
+			move.type = MoveInternal::TYPE_PLACE;
+			move.position = i;
+
+			move.piece = PIECE_FLAT;
+			move.moveid = allMoves.size();
+			allMoves.push_back(move);
+			placements[i * 3] = move;
+
+			move.piece = PIECE_WALL;
+			move.moveid = allMoves.size();
+			allMoves.push_back(move);
+			placements[i * 3 + 1] = move;
+
+			move.piece = PIECE_CAP;
+			move.moveid = allMoves.size();
+			allMoves.push_back(move);
+			placements[i * 3 + 1] = move;
+		}
+
+		// vector moves
+		for (int x = 0; x < Board::SQUARES; ++x) {
+			
+		}
 	}
 };

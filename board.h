@@ -87,17 +87,25 @@ public:
 
 class Board {
 public:
+	// TODO: enable support for multiple board sizes... ergh.
 	const static int SIZE = 5;
 	const static int SQUARES = 25;
 
 	int moveno;
 	int playerTurn;
+	int capstones[2];
+	int piecesleft[2];
 	Stack stacks[SQUARES];
 
 	Board() {
 		bzero(this, sizeof(Board));
 		moveno = 0;
 		playerTurn = 1;
+
+		capstones[0] = 1;
+		capstones[1] = 1;
+		piecesleft[0] = 21;
+		piecesleft[1] = 21;
 	}
 
 	void move(int8_t fr, int8_t to, int8_t count) {
@@ -115,7 +123,7 @@ public:
 		stacks[pos].pop();
 	}
 
-	size_t hash() {
+	uint64_t hash() {
 		return murmurhash(this, sizeof(Board), 0);
 	}
 

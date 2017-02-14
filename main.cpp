@@ -17,8 +17,15 @@ int main() {
 	board.place(3, -PIECE_FLAT);
 	board.place(3, PIECE_WALL);
 	std::cout << board << std::endl;
-	printf("%c[2K", 27);
-	printf("%c[2K", 27);
+
+	while (true) {
+		std::cout << " -> " << std::flush;
+		std::string line;
+		std::getline(std::cin, line);
+
+		if (line == "print")
+			std::cout << board << std::endl;
+	}
 
 	// http://stackoverflow.com/questions/1508490/how-can-i-erase-the-current-line-printed-on-console-in-c-i-am-working-on-a-lin
 }
