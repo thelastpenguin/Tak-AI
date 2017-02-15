@@ -16,7 +16,12 @@ int main() {
 	board.place(3, PIECE_FLAT);
 	board.place(3, -PIECE_FLAT);
 	board.place(3, PIECE_WALL);
+
+	Board board2 = board;
 	std::cout << board << std::endl;
+	std::cout << board.hash() << std::endl;
+	std::cout << board2 << std::endl;
+	std::cout << board2.hash() << std::endl;
 
 	while (true) {
 		std::cout << " -> " << std::flush;

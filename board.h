@@ -127,6 +127,12 @@ public:
 		return murmurhash(this, sizeof(Board), 0);
 	}
 
+	std::vector<Move> getMoves() const;
+
+	int isTerminalState(int8_t team) const; // returns 0 if no winner, -1 if black winner, 1 if white winner
+
+	std::string toTBGEncoding() const;
+
 	bool operator == (const Board& other) {
 		return memcmp(this, &other, sizeof(Board)) == 0;
 	};
@@ -137,10 +143,6 @@ public:
 		std::memcpy(this, &other, sizeof(Board));
 		return *this;
 	}
-
-	std::vector<Move> getMoves() const;
-
-	std::string toTBGEncoding() const;
 };
 
 std::ostream& operator << (std::ostream& out, const Board& board);

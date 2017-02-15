@@ -13,6 +13,6 @@ inline void hash_combine(std::size_t& seed, const T& v)
     seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
 }
 
-extern uint64_t murmurhash( const void * key, int len, unsigned int seed);
+extern uint64_t murmurhash(const void * key, int len, unsigned int seed);
 
 #endif
