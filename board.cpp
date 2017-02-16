@@ -1,5 +1,5 @@
 #include <sstream>
-#include <iostream>
+#include <istream>
 
 #include "board.h"
 #include "termcolor.h"
@@ -18,27 +18,73 @@ const char* piece_to_string(int8_t piece) {
 	}
 }
 
+Board::Board() {
+	bzero(this, sizeof(Board));
+	moveno = 0;
+	playerTurn = 1;
 
-bool squaresAreConnected(uint64_t sq1, uint64_t sq2, uint64_t path)
-{
-	// With bitboard sq1, do an 8-way flood fill, masking off bits not in
-	// path at every step. Stop when fill reaches any set bit in sq2, or
-	// fill cannot progress any further
-
-	if (!(sq1 &= path) || !(sq2 &= path)) return false;
-	// Drop bits not in path
-	// Early exit if sq1 or sq2 not on any path
-
-	while(!(sq1 & sq2))
-	{
-	U64 temp = sq1;
-	sq1 |= eastOne(sq1) | westOne(sq1);    // Set all 8 neighbours
-	sq1 |= soutOne(sq1) | nortOne(sq1);
-	sq1 &= path;                           // Drop bits not in path
-	if (sq1 == temp) return false;         // Fill has stopped
-	}
-	return true;                              // Found a good path
+	capstones[0] = 1;
+	capstones[1] = 1;
+	piecesleft[0] = 21;
+	piecesleft[1] = 21;
 }
+
+Board::Board(const std::string& tbgEncoding) : Board() {
+	std::string encoding(tbgEncoding);
+	std::transform(encoding.begin(), encoding.end(), encoding.begin(), ::tolower);
+	std::replace(encoding.begin(), encoding.end(), ';', ',');
+
+	std::string segment;
+	std::istringstream ss(encoding);
+
+	int i = 0;
+
+	while (std::getline(ss, segment, ',')) {
+		i++;
+		if (i == 1) {
+			this->moveno = std::stoi(segment);
+		} else if (i == 2) {
+			if (segment == "w") {
+				this->playerTurn = 1;
+			} else if (segment == "b") {
+				this->playerTurn = -1;
+			} else {
+				std::cerr << "invalid current player turn '" << segment << std::endl;
+				exit(1); // TODO: learn about throwing exceptions
+			}
+		} else if (i == 3) {
+			assert(std::stoi(segment) == Board::SIZE);
+		} else if (i == 4) {
+			this->piecesleft[0] = std::stoi(segment);
+		} else if (i == 5) {
+			this->piecesleft[1] = std::stoi(segment);
+		} else if (i == 6) {
+			this->capstones[0] = std::stoi(segment);
+		} else if (i == 7) {
+			this->capstones[1] = std::stoi(segment);
+		} else {
+			int stack = i - 8;
+			if (segment.length() >= 2) {
+				for (size_t i = 0; i < segment.length() - 2; ++i) {
+					if (segment[i] == 'b')
+						place(stack, -PIECE_FLAT);
+					else if (segment[i] == 'w')
+						place(stack, PIECE_FLAT);
+				}
+				int8_t team = segment[segment.length() - 2] == 'w' ? 1 : -1;
+				switch (segment[segment.length() - 1]) {
+				case 'f': place(stack, team * PIECE_FLAT); break ;
+				case 's': place(stack, team * PIECE_WALL); break ;
+				case 'c': place(stack, team * PIECE_CAP); break ;
+				default:
+					std::cerr << "invalid piece type on top of stack. error" << std::endl;
+					exit(1);
+				}
+			}
+		}
+	}
+}
+
 
 int Board::isTerminalState(int8_t team) const {
 	uint8_t num_pieces = 0;
