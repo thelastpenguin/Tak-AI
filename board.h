@@ -12,6 +12,8 @@
 
 #include "hash.h"
 
+#define INDEX_BOARD(x, y) Board::SIZE * y + x
+
 // NOTE: this will not allow for the possibility of a stack height >48
 
 const int8_t PIECE_FLAT = 1;
@@ -72,7 +74,7 @@ public:
 	void apply(Board& board) const;
 	void revert(Board& board) const;
 
-	size_t hash() {
+	size_t hash() const {
 		size_t hash = std::hash<uint32_t>()(moveid);
 		hash_combine(hash, board_hash);
 		return hash;
@@ -104,6 +106,7 @@ public:
 	void move(int8_t fr, int8_t to, int8_t count) {
 		if (count == 0) return ;
 		int8_t temp = stacks[fr].top();
+		stacks[fr].pop();
 		move(fr, to, count - 1);
 		stacks[to].push(temp);
 	}
@@ -116,11 +119,11 @@ public:
 		stacks[pos].pop();
 	}
 
-	uint64_t hash() {
+	uint64_t hash() const {
 		return murmurhash(this, sizeof(Board), 0);
 	}
 
-	std::vector<Move> getMoves() const;
+	std::vector<Move> get_moves(int8_t team) const;
 
 	int isTerminalState(int8_t team) const; // returns 0 if no winner, -1 if black winner, 1 if white winner
 

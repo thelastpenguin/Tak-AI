@@ -33,14 +33,11 @@ void read_until_newline(int fd, char *buffer) {
 	*buffer = 0;
 }
 
-
-
 int main(int argc, const char** argv, const char **envp) {
 	if (argc < 2) {
 		std::cerr << "usage: " << argv[0] << " <proc1> <proc2> " << std::endl;
 		exit(0);
 	}
-
 
 	int proc1[2];
 	int proc2[2];
@@ -70,6 +67,5 @@ int main(int argc, const char** argv, const char **envp) {
 		board = Board(std::string(buffer));
 		std::cout << board << std::endl;
 		sleep(1);
-
 	}
 }

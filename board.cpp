@@ -1,6 +1,8 @@
 #include <sstream>
 #include <istream>
 
+#include <algorithm>
+
 #include "board.h"
 #include "termcolor.h"
 #include "helpers.h"
@@ -85,11 +87,12 @@ Board::Board(const std::string& tbgEncoding) : Board() {
 	}
 }
 
-
 int Board::isTerminalState(int8_t team) const {
 	uint8_t num_pieces = 0;
 	int8_t piece_positions[Board::SQUARES];
 	int8_t top[Board::SQUARES];
+
+	// NOTE: todo finish code to check if the terminal state has been reached...
 
 	for (int i = 0; i < Board::SQUARES; ++i) {
 		top[i] = stacks[i].top();
@@ -195,9 +198,9 @@ std::ostream& operator << (std::ostream& out, const Board& board) {
 
 // TODO: move generation ...
 struct MoveInternal {
-	const static int8_t TYPE_PLACE = 0;
-	const static int8_t TYPE_SPLIT = 1;
-	const static int8_t TYPE_SPLIT_SQUASH = 2;
+	const static int8_t TYPE_PLACE = 1;
+	const static int8_t TYPE_SPLIT = 2;
+	const static int8_t TYPE_SPLIT_SQUASH = 3;
 
 	MoveInternal() { bzero(this, sizeof(MoveInternal)); };
 
@@ -219,9 +222,33 @@ struct MoveInternal {
 			return board.playerTurn;
 	}
 
+	bool can_move(const Board& board) {
+		if (type == TYPE_PLACE) {
+			switch (piece) {
+			case PIECE_CAP: return board.capstones[0] > 0;
+			case -PIECE_CAP: return board.capstones[1] > 0;
+			case PIECE_WALL:
+			case PIECE_FLAT: return board.piecesleft[0] > 0;
+			case -PIECE_WALL:
+			case -PIECE_FLAT: return board.piecesleft[1] > 0;
+			default:
+				std::cerr << "invalid piece being placed. " << (int) piece << " Exiting" << std::endl;
+				exit(0);
+			}
+		} else if(type == TYPE_SPLIT) {
+			int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
+			return landingOn != PIECE_WALL && landingOn != PIECE_CAP;
+		} else if (type == TYPE_SPLIT_SQUASH) {
+			int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
+			return landingOn == PIECE_CAP;
+		}
+		return false;
+	}
+
 	void apply(Board& board) const {
 		const int8_t piece_color = MoveInternal::piece_color(board);
-		if (type == 1) {
+		if (type == TYPE_PLACE) {
+			std::cout << "placing piece." << std::endl;
 			board.place(position, piece * piece_color);
 			return ;
 		}
@@ -239,9 +266,8 @@ struct MoveInternal {
 	}
 
 	void revert(Board& board) const {
-		const int8_t piece_color = MoveInternal::piece_color(board);
-		if (type == 1) {
-			board.place(position, piece * piece_color);
+		if (type == TYPE_PLACE) {
+			board.remove(position);
 			return ;
 		}
 
@@ -261,7 +287,7 @@ struct MoveInternal {
 namespace movegen {
 	std::vector<MoveInternal> all_moves;
 
-	MoveInternal placements[Board::SQUARES * 3];
+	MoveInternal placements[Board::SQUARES][3];
 
 	std::vector<MoveInternal> cuts[Board::SQUARES][Board::SIZE + 1]; // 0 index isn't used
 	std::vector<MoveInternal> cuts_flatten[Board::SQUARES][Board::SIZE + 1]; // 0 index isn't used
@@ -280,18 +306,19 @@ namespace movegen {
 	}
 
 	// generate all moves that reach length given
-	std::vector<MoveInternal> generate_moves(int x, int y, int dx, int dy, int length) {
+	std::vector<MoveInternal> generate_moves(int x, int y, int dx, int dy, int distance, int piecesUsed) {
 		std::vector<MoveInternal> result;
 
 		int d = dx + dy * Board::SIZE;
 		std::vector<std::vector<int>> vectors;
-		target_sum(length, std::vector<int>(), vectors);
+		target_sum(piecesUsed, std::vector<int>(), vectors);
 
 		std::sort(vectors.begin(), vectors.end(), [](std::vector<int>& a, std::vector<int>& b) {
 			return a.size() < b.size();
 		});
 
 		for (std::vector<int>& vec : vectors) {
+			if (vec.size() > (size_t)distance) continue;
 			MoveInternal move;
 			move.position = x + y * Board::SIZE;
 			move.split_count = vec.size();
@@ -299,13 +326,13 @@ namespace movegen {
 				move.split_positions[i] = move.position + d * (i + 1);
 				move.split_sizes[i] = vec[i];
 			}
+			result.push_back(move);
 		}
 
 		return result;
 	}
 
 	struct _InitializeMoveCache {
-
 		void generate_cuts_for_position(int x, int y) {
 			const int directions[][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
 
@@ -313,6 +340,7 @@ namespace movegen {
 				int dx = d[0];
 				int dy = d[1];
 				int maxrange = Board::SIZE;
+
 				if (dx < 0)
 					maxrange = std::min(maxrange, x);
 				if (dx > 0)
@@ -322,17 +350,17 @@ namespace movegen {
 				if (dy > 0)
 					maxrange = std::min(maxrange, Board::SIZE - y - 1);
 
-
 				if (maxrange == 0) continue ;
-				for (int distance : range(1, maxrange)) {
-					std::vector<MoveInternal> moves = generate_moves(x, y, dx, dy, distance);
+				for (int pieceCount : range(1, Board::SIZE + 1)) {
+					std::vector<MoveInternal> moves = generate_moves(x, y, dx, dy, std::min(maxrange, pieceCount), pieceCount);
+					std::cout << "#moves: " << moves.size() << " piece count: " << pieceCount << std::endl;
 
 					// NOTE: adds normal moves
 					for (auto& move : moves) {
 						move.type = MoveInternal::TYPE_SPLIT;
 						move.moveid = all_moves.size();
 						all_moves.push_back(move);
-						cuts[x + y * Board::SIZE][distance].push_back(move);
+						cuts[INDEX_BOARD(x, y)][pieceCount].push_back(move);
 					}
 
 					// NOTE: adds flatten moves
@@ -341,7 +369,7 @@ namespace movegen {
 						move.type = MoveInternal::TYPE_SPLIT;
 						move.moveid = all_moves.size();
 						all_moves.push_back(move);
-						cuts_flatten[x + y * Board::SIZE][distance].push_back(move);
+						cuts_flatten[x + y * Board::SIZE][pieceCount].push_back(move);
 					}
 				}
 			}
@@ -358,17 +386,17 @@ namespace movegen {
 			move.piece = PIECE_FLAT;
 			move.moveid = all_moves.size();
 			all_moves.push_back(move);
-			placements[i * 3] = move;
+			placements[i][0] = move;
 
 			move.piece = PIECE_WALL;
 			move.moveid = all_moves.size();
 			all_moves.push_back(move);
-			placements[i * 3 + 1] = move;
+			placements[i][1] = move;
 
 			move.piece = PIECE_CAP;
 			move.moveid = all_moves.size();
 			all_moves.push_back(move);
-			placements[i * 3 + 1] = move;
+			placements[i][2] = move;
 		}
 
 		void generate_moves_for_position(int x, int y) {
@@ -383,9 +411,53 @@ namespace movegen {
 				}
 			}
 		}
-
 	};
 
 	_InitializeMoveCache _movecache;
 
+}
+
+
+std::vector<Move> Board::get_moves(int8_t team) const {
+	uint64_t boardhash = this->hash();
+
+	std::vector<Move> moves;
+	for (int i = 0; i < Board::SQUARES; ++i) {
+		const Stack& stack = stacks[i];
+		int8_t top = stack.top();
+
+		if (top == 0) {
+			// NOTE: these moves are for the top of the stack
+			// for (int j = 0; j < 3; ++j) {
+			// 	MoveInternal& move = movegen::placements[i][j];
+			// 	if (move.can_move(*this))
+			// 		moves.push_back(Move(boardhash, move.moveid));
+			// }
+		} else if (top * team > 0) {
+			bool stop = false;
+			for (int j = 1; j <= stack.size() && !stop; ++j) {
+				for (MoveInternal& move : movegen::cuts[i][j]) {
+					if (move.can_move(*this)) {
+						moves.push_back(Move(boardhash, move.moveid));
+					} else
+						stop = true;
+				}
+				// TODO: re-enable flattening moves
+				// for (MoveInternal& move : movegen::cuts_flatten[i][j]) {
+				// 	if (move.can_move(*this))
+				// 		moves.push_back(Move(boardhash, move.moveid));
+				// }
+			}
+		}
+	}
+
+	return moves;
+};
+
+void Move::apply(Board& board) const {
+	movegen::all_moves[moveid].apply(board);
+}
+
+void Move::revert(Board& board) const {
+	movegen::all_moves[moveid].revert(board);
 }
