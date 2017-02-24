@@ -62,6 +62,10 @@ public:
 	}
 
 	bool operator != (const Stack& other) const { return !(*this == other);}
+
+	inline int piecesOfColor(int color) const {
+		return color > 0 ? stack().count() : stack_height - stack().count();
+	}
 };
 
 class Move {
@@ -121,6 +125,10 @@ public:
 
 	uint64_t hash() const {
 		return murmurhash(this, sizeof(Board), 0);
+	}
+
+	std::vector<Move> get_moves() const {
+		return get_moves(playerTurn);
 	}
 
 	std::vector<Move> get_moves(int8_t team) const;

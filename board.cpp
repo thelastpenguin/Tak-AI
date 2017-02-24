@@ -144,7 +144,7 @@ std::string Board::toTBGEncoding() const {
 }
 
 std::ostream& operator << (std::ostream& out, const Board& board) {
-	out << "Move #" << board.moveno << "   " << (board.playerTurn > 0 ? "White turn" : "Black turn") << std::endl;
+	out << "Move #" << board.moveno << "   " << (board.playerTurn > 0 ? "Black moved. White turn." : "White moved. Black turn.") << std::endl;
 
 	bool useColors = &out == &std::cout;
 
@@ -196,7 +196,6 @@ std::ostream& operator << (std::ostream& out, const Board& board) {
 	move generation
 */
 
-// TODO: move generation ...
 struct MoveInternal {
 	const static int8_t TYPE_PLACE = 1;
 	const static int8_t TYPE_SPLIT = 2;
@@ -236,50 +235,63 @@ struct MoveInternal {
 				exit(0);
 			}
 		} else if(type == TYPE_SPLIT) {
-			int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
-			return landingOn != PIECE_WALL && landingOn != PIECE_CAP;
+			const int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
+			return landingOn == 0 || landingOn == -PIECE_FLAT || landingOn == PIECE_FLAT;
 		} else if (type == TYPE_SPLIT_SQUASH) {
-			int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
-			return landingOn == PIECE_CAP;
+			const int8_t landingOn = std::abs(board.stacks[split_positions[split_count - 1]].top());
+			return landingOn == PIECE_WALL;
 		}
 		return false;
 	}
 
 	void apply(Board& board) const {
 		const int8_t piece_color = MoveInternal::piece_color(board);
+		board.playerTurn = -board.playerTurn;
+		board.moveno++;
 		if (type == TYPE_PLACE) {
-			std::cout << "placing piece." << std::endl;
 			board.place(position, piece * piece_color);
+			switch (piece * piece_color) {
+			case PIECE_CAP: board.capstones[0]--; break ;
+			case -PIECE_CAP: board.capstones[1]--; break ;
+			case PIECE_FLAT:
+			case PIECE_WALL: board.piecesleft[0]--; break ;
+			case -PIECE_FLAT:
+			case -PIECE_WALL: board.piecesleft[1]--; break ;
+			}
 			return ;
 		}
 
 		for (int8_t i = 0; i < split_count; ++i) {
 			board.move(position, split_positions[i], split_sizes[i]);
 		}
-
-		if (type == TYPE_SPLIT_SQUASH) {
-			const int8_t last = split_count - 1;
-			const int8_t wall = board.stacks[last].top() > 0 ? PIECE_FLAT : -PIECE_FLAT;
-			board.remove(last);
-			board.place(last, wall);
-		}
 	}
 
 	void revert(Board& board) const {
+		board.moveno--;
+		board.playerTurn = -board.playerTurn;
 		if (type == TYPE_PLACE) {
+			const int8_t piece_color = MoveInternal::piece_color(board);
 			board.remove(position);
+			switch (piece * piece_color) {
+			case PIECE_CAP: board.capstones[0]++; break ;
+			case -PIECE_CAP: board.capstones[1]++; break ;
+			case PIECE_FLAT:
+			case PIECE_WALL: board.piecesleft[0]++; break ;
+			case -PIECE_FLAT:
+			case -PIECE_WALL: board.piecesleft[1]++; break ;
+			}
 			return ;
-		}
-
-		if (type == TYPE_SPLIT_SQUASH) {
-			const int8_t last = split_count - 1;
-			const int8_t wall = board.stacks[last].top() > 0 ? PIECE_WALL : -PIECE_WALL;
-			board.remove(last);
-			board.place(last, wall);
 		}
 
 		for (int8_t i = split_count - 1; i >= 0; --i) {
 			board.move(split_positions[i], position, split_sizes[i]);
+		}
+
+		if (type == TYPE_SPLIT_SQUASH) {
+			const int8_t last = split_positions[split_count - 1];
+			const int8_t wall = board.stacks[last].top() > 0 ? PIECE_WALL : -PIECE_WALL;
+			board.remove(last);
+			board.place(last, wall);
 		}
 	}
 };
@@ -353,7 +365,6 @@ namespace movegen {
 				if (maxrange == 0) continue ;
 				for (int pieceCount : range(1, Board::SIZE + 1)) {
 					std::vector<MoveInternal> moves = generate_moves(x, y, dx, dy, std::min(maxrange, pieceCount), pieceCount);
-					std::cout << "#moves: " << moves.size() << " piece count: " << pieceCount << std::endl;
 
 					// NOTE: adds normal moves
 					for (auto& move : moves) {
@@ -366,10 +377,10 @@ namespace movegen {
 					// NOTE: adds flatten moves
 					for (auto& move : moves) {
 						if (move.split_sizes[move.split_count - 1] != 1) continue ;
-						move.type = MoveInternal::TYPE_SPLIT;
+						move.type = MoveInternal::TYPE_SPLIT_SQUASH;
 						move.moveid = all_moves.size();
 						all_moves.push_back(move);
-						cuts_flatten[x + y * Board::SIZE][pieceCount].push_back(move);
+						cuts_flatten[INDEX_BOARD(x, y)][pieceCount].push_back(move);
 					}
 				}
 			}
@@ -428,12 +439,12 @@ std::vector<Move> Board::get_moves(int8_t team) const {
 
 		if (top == 0) {
 			// NOTE: these moves are for the top of the stack
-			// for (int j = 0; j < 3; ++j) {
-			// 	MoveInternal& move = movegen::placements[i][j];
-			// 	if (move.can_move(*this))
-			// 		moves.push_back(Move(boardhash, move.moveid));
-			// }
-		} else if (top * team > 0) {
+			for (int j = 0; j < 3; ++j) {
+				MoveInternal& move = movegen::placements[i][j];
+				if (move.can_move(*this))
+					moves.push_back(Move(boardhash, move.moveid));
+			}
+		} else if (top * team > 0 && moveno >= 2) {
 			bool stop = false;
 			for (int j = 1; j <= stack.size() && !stop; ++j) {
 				for (MoveInternal& move : movegen::cuts[i][j]) {
@@ -442,11 +453,12 @@ std::vector<Move> Board::get_moves(int8_t team) const {
 					} else
 						stop = true;
 				}
-				// TODO: re-enable flattening moves
-				// for (MoveInternal& move : movegen::cuts_flatten[i][j]) {
-				// 	if (move.can_move(*this))
-				// 		moves.push_back(Move(boardhash, move.moveid));
-				// }
+				if (stop)
+					for (MoveInternal& move : movegen::cuts_flatten[i][j]) {
+						if (move.can_move(*this)) {
+							moves.push_back(Move(boardhash, move.moveid));
+						}
+					}
 			}
 		}
 	}
