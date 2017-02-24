@@ -12,8 +12,6 @@
 
 #include "hash.h"
 
-#define INDEX_BOARD(x, y) Board::SIZE * y + x
-
 // NOTE: this will not allow for the possibility of a stack height >48
 
 const int8_t PIECE_FLAT = 1;
@@ -70,9 +68,10 @@ public:
 
 class Move {
 public:
-	const uint32_t moveid;
-	const uint64_t board_hash;
-
+	uint32_t moveid;
+	uint64_t board_hash;
+	Move() : moveid(0), board_hash(0) { };
+	Move(const Move& move) : moveid(move.moveid), board_hash(move.board_hash) { };
 	Move(uint64_t board_hash, uint32_t moveid) : moveid(moveid), board_hash(board_hash) { };
 
 	void apply(Board& board) const;
@@ -108,6 +107,8 @@ public:
 	Board(const std::string& tbgEncoding);
 
 	void move(int8_t fr, int8_t to, int8_t count) {
+		assert(fr >= 0 && fr < Board::SQUARES && to >= 0 && to < Board::SQUARES);
+
 		if (count == 0) return ;
 		int8_t temp = stacks[fr].top();
 		stacks[fr].pop();
@@ -133,7 +134,24 @@ public:
 
 	std::vector<Move> get_moves(int8_t team) const;
 
-	int isTerminalState(int8_t team) const; // returns 0 if no winner, -1 if black winner, 1 if white winner
+	// the least cost distance from one side to the other...
+	int getDjikstraScore(int player, int *horDistance = nullptr, int *vertDistance = nullptr) const;
+
+	// material score
+	double getMaterialScore(int player) const;
+
+	// some ratio of the two scoring functions based on progress through the game
+	double getScore() const;
+
+	bool isTerminalState(int8_t team) const; // returns 0 if no winner, -1 if black winner, 1 if white winner
+	int isTerminalState() const {
+		if (isTerminalState(1))
+			return 1;
+		else if(isTerminalState(-1))
+			return -1;
+		else
+			return 0;
+	}
 
 	std::string toTBGEncoding() const;
 
@@ -150,5 +168,9 @@ public:
 };
 
 std::ostream& operator << (std::ostream& out, const Board& board);
+
+constexpr int INDEX_BOARD(int x, int y) {
+	return Board::SIZE * y + x;
+}
 
 #endif

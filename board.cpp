@@ -2,6 +2,8 @@
 #include <istream>
 
 #include <algorithm>
+#include <functional>
+#include <queue>
 
 #include "board.h"
 #include "termcolor.h"
@@ -85,27 +87,6 @@ Board::Board(const std::string& tbgEncoding) : Board() {
 			}
 		}
 	}
-}
-
-int Board::isTerminalState(int8_t team) const {
-	uint8_t num_pieces = 0;
-	int8_t piece_positions[Board::SQUARES];
-	int8_t top[Board::SQUARES];
-
-	// NOTE: todo finish code to check if the terminal state has been reached...
-
-	for (int i = 0; i < Board::SQUARES; ++i) {
-		top[i] = stacks[i].top();
-		if (top[i] * team > 0) {
-			piece_positions[num_pieces++] = i;
-		}
-	}
-
-	for (int i = 0; i < Board::SQUARES; ++i) {
-
-	}
-
-	return 0;
 }
 
 std::string Board::toTBGEncoding() const {
@@ -192,284 +173,193 @@ std::ostream& operator << (std::ostream& out, const Board& board) {
 	return out;
 };
 
+bool Board::isTerminalState(int8_t team) const {
+	assert(team == 1 || team == -1);
+	// TODO: optimize this to reuse the djikstra's score computed in the scoring step
+	return getDjikstraScore(team) == 0;
+}
+
+double Board::getScore() const {
+	// NOTE: this should shift from early, to mid, to end game score weightings
+
+	int whiteHorDist;
+	int whiteVertDist;
+	int blackHorDist;
+	int blackVertDist;
+
+	getDjikstraScore(1, &whiteHorDist, &whiteVertDist);
+	getDjikstraScore(-1, &blackHorDist, &blackVertDist);
+
+	if (whiteHorDist == 0 || whiteVertDist == 0) return 10000;
+	if (blackHorDist == 0 || blackHorDist == 0) return -10000;
+
+	// whiteHorDist *= whiteHorDist;
+	// blackHorDist *= blackHorDist;
+	// whiteVertDist *= whiteVertDist;
+	// blackVertDist *= blackVertDist;
+
+	return -(whiteHorDist * whiteVertDist) + blackHorDist * blackVertDist;
+}
+
 /**
-	move generation
+	material scoring algorithm
 */
 
-struct MoveInternal {
-	const static int8_t TYPE_PLACE = 1;
-	const static int8_t TYPE_SPLIT = 2;
-	const static int8_t TYPE_SPLIT_SQUASH = 3;
+double Board::getMaterialScore(int player) const {
+	assert(player == 1 || player == -1);
+	// NOTE: as the game progresses coverage should become more important than elevation
 
-	MoveInternal() { bzero(this, sizeof(MoveInternal)); };
+	/*
+	rules:
+		1) it is best to have more flats
+		2)
+	*/
 
-	uint32_t moveid;
+	double score = 0;
 
-	int8_t type;
+	// for (int i = 0; i < Board::SQUARES; ++i) {
+	// 	int8_t top = stacks[i].top();
+	// }
 
-	int8_t position;
-	int8_t piece;
+	return score;
+}
 
-	int8_t split_count;
-	int8_t split_positions[Board::SIZE];
-	int8_t split_sizes[Board::SIZE];
+/**
+	djikstra's algorithm based scoring function
+*/
 
-	inline static int8_t piece_color(const Board& board) {
-		if (board.moveno < 2)
-			return -board.playerTurn;
-		else
-			return board.playerTurn;
-	}
+struct djkscore_node {
+	typedef int16_t distance_t;
+	const static distance_t maxDistance = 10000;
+	bool explored = false;
+	int8_t x = -1;
+	int8_t y = -1;
+	distance_t cost = 0;
+	distance_t distance = maxDistance;
 
-	bool can_move(const Board& board) {
-		if (type == TYPE_PLACE) {
-			switch (piece) {
-			case PIECE_CAP: return board.capstones[0] > 0;
-			case -PIECE_CAP: return board.capstones[1] > 0;
-			case PIECE_WALL:
-			case PIECE_FLAT: return board.piecesleft[0] > 0;
-			case -PIECE_WALL:
-			case -PIECE_FLAT: return board.piecesleft[1] > 0;
-			default:
-				std::cerr << "invalid piece being placed. " << (int) piece << " Exiting" << std::endl;
-				exit(0);
-			}
-		} else if(type == TYPE_SPLIT) {
-			const int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
-			return landingOn == 0 || landingOn == -PIECE_FLAT || landingOn == PIECE_FLAT;
-		} else if (type == TYPE_SPLIT_SQUASH) {
-			const int8_t landingOn = std::abs(board.stacks[split_positions[split_count - 1]].top());
-			return landingOn == PIECE_WALL;
-		}
-		return false;
-	}
+	template<typename T>
+	void enqueue_neighbors(djkscore_node* grid, T& pqueue) {
+		// TODO: better encapsulation here
 
-	void apply(Board& board) const {
-		const int8_t piece_color = MoveInternal::piece_color(board);
-		board.playerTurn = -board.playerTurn;
-		board.moveno++;
-		if (type == TYPE_PLACE) {
-			board.place(position, piece * piece_color);
-			switch (piece * piece_color) {
-			case PIECE_CAP: board.capstones[0]--; break ;
-			case -PIECE_CAP: board.capstones[1]--; break ;
-			case PIECE_FLAT:
-			case PIECE_WALL: board.piecesleft[0]--; break ;
-			case -PIECE_FLAT:
-			case -PIECE_WALL: board.piecesleft[1]--; break ;
-			}
-			return ;
+		if (x > 0 && !grid[INDEX_BOARD(x - 1, y)].explored) {
+			int ind = INDEX_BOARD(x - 1, y);
+			grid[ind].explored = true;
+			distance_t tentativeDistance = grid[ind].cost + distance;
+			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
+			pqueue.push(&grid[ind]);
 		}
 
-		for (int8_t i = 0; i < split_count; ++i) {
-			board.move(position, split_positions[i], split_sizes[i]);
-		}
-	}
-
-	void revert(Board& board) const {
-		board.moveno--;
-		board.playerTurn = -board.playerTurn;
-		if (type == TYPE_PLACE) {
-			const int8_t piece_color = MoveInternal::piece_color(board);
-			board.remove(position);
-			switch (piece * piece_color) {
-			case PIECE_CAP: board.capstones[0]++; break ;
-			case -PIECE_CAP: board.capstones[1]++; break ;
-			case PIECE_FLAT:
-			case PIECE_WALL: board.piecesleft[0]++; break ;
-			case -PIECE_FLAT:
-			case -PIECE_WALL: board.piecesleft[1]++; break ;
-			}
-			return ;
+		if (x < Board::SIZE - 1 && !grid[INDEX_BOARD(x + 1, y)].explored) {
+			int ind = INDEX_BOARD(x + 1, y);
+			grid[ind].explored = true;
+			distance_t tentativeDistance = grid[ind].cost + distance;
+			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
+			pqueue.push(&grid[ind]);
 		}
 
-		for (int8_t i = split_count - 1; i >= 0; --i) {
-			board.move(split_positions[i], position, split_sizes[i]);
+		if (y > 0 && !grid[INDEX_BOARD(x, y - 1)].explored) {
+			int ind = INDEX_BOARD(x, y - 1);
+			grid[ind].explored = true;
+			distance_t tentativeDistance = grid[ind].cost + distance;
+			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
+			pqueue.push(&grid[ind]);
 		}
 
-		if (type == TYPE_SPLIT_SQUASH) {
-			const int8_t last = split_positions[split_count - 1];
-			const int8_t wall = board.stacks[last].top() > 0 ? PIECE_WALL : -PIECE_WALL;
-			board.remove(last);
-			board.place(last, wall);
+		if (y < Board::SIZE - 1 && !grid[INDEX_BOARD(x, y + 1)].explored) {
+			int ind = INDEX_BOARD(x, y + 1);
+			grid[ind].explored = true;
+			distance_t tentativeDistance = grid[ind].cost + distance;
+			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
+			pqueue.push(&grid[ind]);
 		}
+
+		// std::cout << "x: " << x << " y: " << y << " distance: " << distance << std::endl;
+		explored = true;
 	}
 };
 
-namespace movegen {
-	std::vector<MoveInternal> all_moves;
-
-	MoveInternal placements[Board::SQUARES][3];
-
-	std::vector<MoveInternal> cuts[Board::SQUARES][Board::SIZE + 1]; // 0 index isn't used
-	std::vector<MoveInternal> cuts_flatten[Board::SQUARES][Board::SIZE + 1]; // 0 index isn't used
-
-
-	// generate all sequences of integers that reach the sum 'n'
-	void target_sum(int n, std::vector<int> current, std::vector<std::vector<int>>& results) {
-		for (int i = 1; i < n; ++i) {
-			std::vector<int> copy = current;
-			copy.push_back(i);
-			target_sum(n - i, copy, results);
-		}
-		std::vector<int> copy = current;
-		copy.push_back(n);
-		results.push_back(copy);
-	}
-
-	// generate all moves that reach length given
-	std::vector<MoveInternal> generate_moves(int x, int y, int dx, int dy, int distance, int piecesUsed) {
-		std::vector<MoveInternal> result;
-
-		int d = dx + dy * Board::SIZE;
-		std::vector<std::vector<int>> vectors;
-		target_sum(piecesUsed, std::vector<int>(), vectors);
-
-		std::sort(vectors.begin(), vectors.end(), [](std::vector<int>& a, std::vector<int>& b) {
-			return a.size() < b.size();
-		});
-
-		for (std::vector<int>& vec : vectors) {
-			if (vec.size() > (size_t)distance) continue;
-			MoveInternal move;
-			move.position = x + y * Board::SIZE;
-			move.split_count = vec.size();
-			for (int i : range(0, vec.size())) {
-				move.split_positions[i] = move.position + d * (i + 1);
-				move.split_sizes[i] = vec[i];
-			}
-			result.push_back(move);
-		}
-
-		return result;
-	}
-
-	struct _InitializeMoveCache {
-		void generate_cuts_for_position(int x, int y) {
-			const int directions[][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-
-			for (const int* d : directions) {
-				int dx = d[0];
-				int dy = d[1];
-				int maxrange = Board::SIZE;
-
-				if (dx < 0)
-					maxrange = std::min(maxrange, x);
-				if (dx > 0)
-					maxrange = std::min(maxrange, Board::SIZE - x - 1);
-				if (dy < 0)
-					maxrange = std::min(maxrange, y);
-				if (dy > 0)
-					maxrange = std::min(maxrange, Board::SIZE - y - 1);
-
-				if (maxrange == 0) continue ;
-				for (int pieceCount : range(1, Board::SIZE + 1)) {
-					std::vector<MoveInternal> moves = generate_moves(x, y, dx, dy, std::min(maxrange, pieceCount), pieceCount);
-
-					// NOTE: adds normal moves
-					for (auto& move : moves) {
-						move.type = MoveInternal::TYPE_SPLIT;
-						move.moveid = all_moves.size();
-						all_moves.push_back(move);
-						cuts[INDEX_BOARD(x, y)][pieceCount].push_back(move);
-					}
-
-					// NOTE: adds flatten moves
-					for (auto& move : moves) {
-						if (move.split_sizes[move.split_count - 1] != 1) continue ;
-						move.type = MoveInternal::TYPE_SPLIT_SQUASH;
-						move.moveid = all_moves.size();
-						all_moves.push_back(move);
-						cuts_flatten[INDEX_BOARD(x, y)][pieceCount].push_back(move);
-					}
-				}
-			}
-		}
-
-		void generate_placements_for_position(int x, int y) {
-			int i = x + y * Board::SIZE;
-
-			MoveInternal move;
-
-			move.type = MoveInternal::TYPE_PLACE;
-			move.position = i;
-
-			move.piece = PIECE_FLAT;
-			move.moveid = all_moves.size();
-			all_moves.push_back(move);
-			placements[i][0] = move;
-
-			move.piece = PIECE_WALL;
-			move.moveid = all_moves.size();
-			all_moves.push_back(move);
-			placements[i][1] = move;
-
-			move.piece = PIECE_CAP;
-			move.moveid = all_moves.size();
-			all_moves.push_back(move);
-			placements[i][2] = move;
-		}
-
-		void generate_moves_for_position(int x, int y) {
-			generate_placements_for_position(x, y);
-			generate_cuts_for_position(x, y);
-		}
-
-		_InitializeMoveCache() {
-			for (int y : range(0, Board::SIZE)) {
-				for (int x : range(0, Board::SIZE)) {
-					generate_moves_for_position(x, y);
-				}
-			}
-		}
-	};
-
-	_InitializeMoveCache _movecache;
-
+bool operator < (const djkscore_node& a, const djkscore_node& b) {
+	return a.distance < b.distance;
 }
 
+int Board::getDjikstraScore(int player, int *horizontalDistance, int *verticalDistance) const {
+	assert(player == 1 || player == -1);
 
-std::vector<Move> Board::get_moves(int8_t team) const {
-	uint64_t boardhash = this->hash();
+	djkscore_node::distance_t horDist = djkscore_node::maxDistance;
+	djkscore_node::distance_t vertDist = djkscore_node::maxDistance;
+	djkscore_node graph[Board::SQUARES];
+	std::priority_queue<djkscore_node*, std::vector<djkscore_node*>, std::greater<djkscore_node*>> queue;
 
-	std::vector<Move> moves;
+	// setup the graph
+	for (int y = 0; y < Board::SIZE; ++y) {
+		for (int x = 0; x < Board::SIZE; ++x) {
+			int i = INDEX_BOARD(x, y);
+			graph[i].x = x;
+			graph[i].y = y;
+			graph[i].explored = false;
+			graph[i].distance = djkscore_node::maxDistance;
+
+			int8_t top = stacks[i].top() * player;
+			if (top == PIECE_WALL || top == -PIECE_WALL) {
+				// TODO: tweek the distance penalty assigned to walls
+				graph[i].cost = 5;
+			} else if (top > 0) {
+				graph[i].cost = 0;
+			} else {
+				graph[i].cost = 1;
+			}
+		}
+	}
+
+	// initialize the queue for a top -> bottom scan
+	for (int i = 0; i < Board::SIZE; ++i) {
+		int p = INDEX_BOARD(i, 0); // the top row.
+		graph[p].distance = graph[p].cost;
+		queue.push(&graph[p]); // push the node into the queue...
+	}
+
+	while (!queue.empty()) {
+		djkscore_node* cur = queue.top();
+		queue.pop();
+		cur->enqueue_neighbors(graph, queue);
+	}
+
+	for (int i = 0; i < Board::SIZE; ++i) {
+		int p = INDEX_BOARD(i, Board::SIZE - 1); // the bottom row
+		if (graph[p].distance < vertDist)
+			vertDist = graph[p].distance;
+	}
+
+	// initialize the queue for a left -> right scan
 	for (int i = 0; i < Board::SQUARES; ++i) {
-		const Stack& stack = stacks[i];
-		int8_t top = stack.top();
-
-		if (top == 0) {
-			// NOTE: these moves are for the top of the stack
-			for (int j = 0; j < 3; ++j) {
-				MoveInternal& move = movegen::placements[i][j];
-				if (move.can_move(*this))
-					moves.push_back(Move(boardhash, move.moveid));
-			}
-		} else if (top * team > 0 && moveno >= 2) {
-			bool stop = false;
-			for (int j = 1; j <= stack.size() && !stop; ++j) {
-				for (MoveInternal& move : movegen::cuts[i][j]) {
-					if (move.can_move(*this)) {
-						moves.push_back(Move(boardhash, move.moveid));
-					} else
-						stop = true;
-				}
-				if (stop)
-					for (MoveInternal& move : movegen::cuts_flatten[i][j]) {
-						if (move.can_move(*this)) {
-							moves.push_back(Move(boardhash, move.moveid));
-						}
-					}
-			}
-		}
+		// clear the state information from the graph that was set in previous run
+		graph[i].explored = false;
+		graph[i].distance = djkscore_node::maxDistance;
 	}
 
-	return moves;
+	for (int i = 0; i < Board::SIZE; ++i) {
+		int p = INDEX_BOARD(0, i); // the top row.
+		graph[p].distance = graph[p].cost;
+		queue.push(&graph[p]); // push the node into the queue...
+	}
+
+	while (!queue.empty()) {
+		djkscore_node* cur = queue.top();
+		queue.pop();
+		cur->enqueue_neighbors(graph, queue);
+	}
+
+	for (int i = 0; i < Board::SIZE; ++i) {
+		int p = INDEX_BOARD(Board::SIZE - 1, i); // the bottom row
+		if (graph[p].distance < horDist)
+			horDist = graph[p].distance;
+	}
+
+	// pass back results
+	if (horizontalDistance)
+		*horizontalDistance = horDist;
+	if (verticalDistance)
+		*verticalDistance = vertDist;
+
+	return vertDist < horDist ? vertDist : horDist;
 };
-
-void Move::apply(Board& board) const {
-	movegen::all_moves[moveid].apply(board);
-}
-
-void Move::revert(Board& board) const {
-	movegen::all_moves[moveid].revert(board);
-}
