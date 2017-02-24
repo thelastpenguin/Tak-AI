@@ -10,8 +10,9 @@
 
 double negamax(Board& board, int depth, Move* result, double alpha = -std::numeric_limits<double>::max(), double beta = std::numeric_limits<double>::max()) {
 	int isTerminal = board.isTerminalState();
-	if (depth == 0 || isTerminal != 0) {
-        return board.getScore();
+	if (isTerminal != 0) return isTerminal * 100000;
+	if (depth == 0) {
+        return board.getScore() * board.playerTurn;
     }
 
     double max = -std::numeric_limits<double>::max();
@@ -23,7 +24,7 @@ double negamax(Board& board, int depth, Move* result, double alpha = -std::numer
         double score = -negamax(board, depth - 1, nullptr, -beta, -alpha);
         move.revert(board);
 
-        if (score > max || (score == max && rand() % 3 == 1)) {
+        if (score > max || (score == max && rand() % 2 == 0)) {
             if (result)
                 *result = move;
             max = score;
@@ -36,6 +37,30 @@ double negamax(Board& board, int depth, Move* result, double alpha = -std::numer
 
     return max;
 }
+
+struct Player {
+	virtual Board makeAMove(Board board) = 0;
+};
+
+struct AIPlayer {
+	virtual Board makeAMove(Board board) {
+		Move move;
+		double score = negamax(board, 4, &move);
+		std::cout << "AI Player generated move with score: " << score << std::endl;
+		move.apply(board);
+		return board;
+	}
+};
+
+struct HumanPlayer {
+	virtual Board makeAMove(Board board) {
+		std::cout << "Human Move (" << (board.playerTurn > 0 ? "White" : "Black") << ") ..." << std::endl;
+		std::cout << " -> ";
+		// TODO: finish move API
+	};
+};
+
+
 
 int main() {
 
@@ -50,13 +75,11 @@ int main() {
 	// board.place(4, PIECE_FLAT);
 	// std::cout << board.isTerminalState() << std::endl;
 
-	srand(time());
+	srand(time(0));
 
 
 	while (true) {
-		Move move;
-		double score = negamax(board, 4, &move);
-		move.apply(board);
+
 
 		std::cout << "\n\n\n\n" << std::endl;
 		std::cout << board;
@@ -64,5 +87,5 @@ int main() {
 		if (board.isTerminalState()) break ;
 	}
 	std::cout << "Done." << std::endl;
-
+	std::cout << "\t" << (board.playerTurn < 0 ? "Black" : "White") << " Wins!" << std::endl;
 }

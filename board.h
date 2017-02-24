@@ -134,11 +134,15 @@ public:
 
 	std::vector<Move> get_moves(int8_t team) const;
 
+	bool isLateGame() const {
+		return piecesleft[0] < 5 || piecesleft[1] < 5;
+	}
+
 	// the least cost distance from one side to the other...
 	int getDjikstraScore(int player, int *horDistance = nullptr, int *vertDistance = nullptr) const;
 
 	// material score
-	double getMaterialScore(int player) const;
+	double getMaterialScore(int team) const;
 
 	// some ratio of the two scoring functions based on progress through the game
 	double getScore() const;

@@ -175,8 +175,7 @@ std::ostream& operator << (std::ostream& out, const Board& board) {
 
 bool Board::isTerminalState(int8_t team) const {
 	assert(team == 1 || team == -1);
-	// TODO: optimize this to reuse the djikstra's score computed in the scoring step
-	return getDjikstraScore(team) == 0;
+	return getDjikstraScore(team) == 0 || piecesleft[team > 0 ? 0 : 1] == 0;
 }
 
 double Board::getScore() const {
@@ -193,35 +192,120 @@ double Board::getScore() const {
 	if (whiteHorDist == 0 || whiteVertDist == 0) return 10000;
 	if (blackHorDist == 0 || blackHorDist == 0) return -10000;
 
-	// whiteHorDist *= whiteHorDist;
-	// blackHorDist *= blackHorDist;
-	// whiteVertDist *= whiteVertDist;
-	// blackVertDist *= blackVertDist;
+	// determine the winner from running out of pieces
+	if (piecesleft[1] == 0 || piecesleft[0] == 0) {
+		int count = 0;
+		for (int i = 0; i < Board::SQUARES; ++i) {
+			if (stacks[i].top() != 0) {
+				count += stacks[i].top() > 0 ? 1 : -1;
+			}
+		}
+		if (count == 0) return 0;
+		return count > 0 ? 10000 : -10000;
+	}
 
-	return -(whiteHorDist * whiteVertDist) + blackHorDist * blackVertDist;
+	if (!isLateGame()) {
+		whiteHorDist *= whiteHorDist;
+		blackHorDist *= blackHorDist;
+		whiteVertDist *= whiteVertDist;
+		blackVertDist *= blackVertDist;
+
+		const double scoreDjikstra = -(whiteHorDist * whiteVertDist) + blackHorDist * blackVertDist;
+		const double scoreMaterial = getMaterialScore(1) - getMaterialScore(-1);
+
+		return scoreDjikstra + scoreMaterial * 0.2;
+	} else {
+		const double scoreDjikstra = -(whiteHorDist * whiteVertDist) + blackHorDist * blackVertDist;
+		const double scoreMaterial = getMaterialScore(1) - getMaterialScore(-1);
+
+		return scoreDjikstra  + scoreMaterial * 0.2;
+	}
+
+
+
 }
 
 /**
 	material scoring algorithm
 */
 
-double Board::getMaterialScore(int player) const {
-	assert(player == 1 || player == -1);
-	// NOTE: as the game progresses coverage should become more important than elevation
+const int CAP_MOBILITY_WEIGHT = 0;
 
-	/*
-	rules:
-		1) it is best to have more flats
-		2)
-	*/
+// NOTE: towards late game material score becomes MUCH more important... yeah.
+//       high value in having more material than the opponent / having fewer pieces.
+double Board::getMaterialScore(int team) const {
+	const static double HARD_CAP_BUFF = 3; // REALLY good to have a hard cap.
+	const static double CAP_STRATEGIC_MULTIPLIER = 1.25; // value of having a cap well positioned
+	const static double STACK_RANGE_BUF = 0.1;
+	const static double CAPTIVE_PENALTY = 0.3;
+	const static double FLAT_MATERIAL_VALUE = 1;
+	const static double CENTRALITY_VALUE = 0.1;
 
-	double score = 0;
+	// TODO: add score buffs for formations i.e. castles / protection
 
-	// for (int i = 0; i < Board::SQUARES; ++i) {
-	// 	int8_t top = stacks[i].top();
-	// }
+	double strats = 0;
 
-	return score;
+	for (int y = 0; y < Board::SIZE; ++y) {
+		for (int x = 0; x < Board::SIZE; ++x) {
+			// do we control it?
+			const Stack& st = stacks[INDEX_BOARD(x, y)];
+			int8_t top = st.top() * team;
+			if (top <= 0) continue ;
+
+			// cache some locals...
+			const int stack_height = st.size();
+			auto bits = st.stack();
+			if (team < 0) bits = ~bits;
+
+			// compute the range of the stack
+			int range;
+			int captives = stack_height - bits.count();
+			if (stack_height == 1) {
+				range = 1;
+				captives = 0;
+			} else {
+				range = bits.count() - (bits >> 5).count();
+			}
+
+			// acually add up the value
+			switch (top) {
+			case PIECE_FLAT: {
+				strats += FLAT_MATERIAL_VALUE;
+				strats += range * STACK_RANGE_BUF;
+				strats -= captives * CAPTIVE_PENALTY;
+
+				// add centrality
+				strats -= (abs(x - 2) + abs(y - 2)) * CENTRALITY_VALUE;
+
+				break ;
+			}
+			case PIECE_WALL: {
+				// no raw material value... only positional value + control value.
+				strats += range * STACK_RANGE_BUF;
+				strats -= captives * CAPTIVE_PENALTY;
+
+				break ;
+			}
+			case PIECE_CAP: {
+				if (st.size() >= 2) {
+					if (bits[stack_height - 2] == 1) {
+						strats += HARD_CAP_BUFF;
+					}
+				}
+
+				strats += range * STACK_RANGE_BUF * CAP_STRATEGIC_MULTIPLIER;
+				strats -= captives * CAPTIVE_PENALTY;
+
+				// add centrality
+				strats -= (abs(x - 2) + abs(y - 2)) * CENTRALITY_VALUE * CAP_STRATEGIC_MULTIPLIER;
+
+				break ;
+			}
+			}
+		}
+	}
+
+	return strats;
 }
 
 /**
