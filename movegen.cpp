@@ -25,14 +25,13 @@ struct MoveInternal {
 	int8_t split_sizes[Board::SIZE];
 
 	inline static int8_t piece_color(const Board& board) {
-		if (board.moveno < 2)
-			return -board.playerTurn;
-		else
-			return board.playerTurn;
+		return board.placementColor();
 	}
 
 	bool can_move(const Board& board) {
 		if (type == TYPE_PLACE) {
+			int8_t piece = this->piece * MoveInternal::piece_color(board);
+			if (board.moveno < 2) return piece == PIECE_FLAT || piece == -PIECE_FLAT;
 			switch (piece) {
 			case PIECE_CAP: return board.capstones[0] > 0;
 			case -PIECE_CAP: return board.capstones[1] > 0;
@@ -70,7 +69,7 @@ struct MoveInternal {
 			return ;
 		}
 
-		for (int8_t i = 0; i < split_count; ++i) {
+		for (int8_t i = split_count - 1; i >= 0; --i) {
 			board.move(position, split_positions[i], split_sizes[i]);
 		}
 	}
@@ -92,7 +91,7 @@ struct MoveInternal {
 			return ;
 		}
 
-		for (int8_t i = split_count - 1; i >= 0; --i) {
+		for (int8_t i = 0; i < split_count; ++i) {
 			board.move(split_positions[i], position, split_sizes[i]);
 		}
 
@@ -263,7 +262,7 @@ std::vector<Move> Board::get_moves(int8_t team) const {
 					} else
 						stop = true;
 				}
-				if (stop)
+				if (stop && top * team == PIECE_CAP)
 					for (MoveInternal& move : movegen::cuts_flatten[i][j]) {
 						if (move.can_move(*this)) {
 							moves.push_back(Move(boardhash, move.moveid));

@@ -70,8 +70,8 @@ class Move {
 public:
 	uint32_t moveid;
 	uint64_t board_hash;
+	double temp;
 	Move() : moveid(0), board_hash(0) { };
-	Move(const Move& move) : moveid(move.moveid), board_hash(move.board_hash) { };
 	Move(uint64_t board_hash, uint32_t moveid) : moveid(moveid), board_hash(board_hash) { };
 
 	void apply(Board& board) const;
@@ -142,7 +142,7 @@ public:
 	int getDjikstraScore(int player, int *horDistance = nullptr, int *vertDistance = nullptr) const;
 
 	// material score
-	double getMaterialScore(int team) const;
+	double getMaterialScore() const;
 
 	// some ratio of the two scoring functions based on progress through the game
 	double getScore() const;
@@ -168,6 +168,14 @@ public:
 	Board& operator=(const Board& other) {
 		std::memcpy(this, &other, sizeof(Board));
 		return *this;
+	}
+
+	// NOTE: this is not the same as player turn
+	int placementColor() const {
+		if (moveno < 2)
+			return -playerTurn;
+		else
+			return playerTurn;
 	}
 };
 

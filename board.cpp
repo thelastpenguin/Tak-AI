@@ -186,42 +186,41 @@ double Board::getScore() const {
 	int blackHorDist;
 	int blackVertDist;
 
-	getDjikstraScore(1, &whiteHorDist, &whiteVertDist);
-	getDjikstraScore(-1, &blackHorDist, &blackVertDist);
-
-	if (whiteHorDist == 0 || whiteVertDist == 0) return 10000;
-	if (blackHorDist == 0 || blackHorDist == 0) return -10000;
-
 	// determine the winner from running out of pieces
 	if (piecesleft[1] == 0 || piecesleft[0] == 0) {
 		int count = 0;
-		for (int i = 0; i < Board::SQUARES; ++i) {
-			if (stacks[i].top() != 0) {
+		for (int i : range(0, Board::SQUARES)) {
+			if (stacks[i].top() != 0)
 				count += stacks[i].top() > 0 ? 1 : -1;
-			}
 		}
-		if (count == 0) return 0;
-		return count > 0 ? 10000 : -10000;
+		return count == 0 ? 0 : (count > 0 ? 100000.0 : -100000.0);
 	}
 
-	if (!isLateGame()) {
-		whiteHorDist *= whiteHorDist;
-		blackHorDist *= blackHorDist;
-		whiteVertDist *= whiteVertDist;
-		blackVertDist *= blackVertDist;
+	// determine the djikstra score
+	getDjikstraScore(1, &whiteHorDist, &whiteVertDist);
+	getDjikstraScore(-1, &blackHorDist, &blackVertDist);
 
-		const double scoreDjikstra = -(whiteHorDist * whiteVertDist) + blackHorDist * blackVertDist;
-		const double scoreMaterial = getMaterialScore(1) - getMaterialScore(-1);
+	if (whiteHorDist == 0 || whiteVertDist == 0) return 100000.0;
+	if (blackHorDist == 0 || blackHorDist == 0) return -100000.0;
 
-		return scoreDjikstra + scoreMaterial * 0.2;
+	// determine the djkistra' score of the board
+	whiteHorDist = Board::SIZE - whiteHorDist;
+	whiteVertDist = Board::SIZE - whiteVertDist;
+	blackHorDist = Board::SIZE - blackHorDist;
+	blackVertDist = Board::SIZE - blackVertDist;
+	// whiteHorDist *= whiteHorDist;
+	// whiteVertDist *= whiteVertDist;
+	// blackHorDist *= blackHorDist;
+	// blackVertDist *= blackVertDist;
+
+	double djikstraScore = (whiteHorDist + whiteVertDist) - (blackHorDist + blackVertDist);
+	double materialScore = getMaterialScore();
+
+	if (isLateGame()) {
+		return djikstraScore + materialScore * 4;
 	} else {
-		const double scoreDjikstra = -(whiteHorDist * whiteVertDist) + blackHorDist * blackVertDist;
-		const double scoreMaterial = getMaterialScore(1) - getMaterialScore(-1);
-
-		return scoreDjikstra  + scoreMaterial * 0.2;
+		return djikstraScore + materialScore;
 	}
-
-
 
 }
 
@@ -233,146 +232,120 @@ const int CAP_MOBILITY_WEIGHT = 0;
 
 // NOTE: towards late game material score becomes MUCH more important... yeah.
 //       high value in having more material than the opponent / having fewer pieces.
-double Board::getMaterialScore(int team) const {
-	const static double HARD_CAP_BUFF = 3; // REALLY good to have a hard cap.
-	const static double CAP_STRATEGIC_MULTIPLIER = 1.25; // value of having a cap well positioned
-	const static double STACK_RANGE_BUF = 0.1;
-	const static double CAPTIVE_PENALTY = 0.3;
-	const static double FLAT_MATERIAL_VALUE = 1;
-	const static double CENTRALITY_VALUE = 0.1;
+double Board::getMaterialScore() const {
+	const double COVERAGE_VALUE = 1.0;
+	const double NEGIHBORS_BUFF = 3.0;
 
-	// TODO: add score buffs for formations i.e. castles / protection
-
-	double strats = 0;
+	double score = 0;
 
 	for (int y = 0; y < Board::SIZE; ++y) {
 		for (int x = 0; x < Board::SIZE; ++x) {
-			// do we control it?
 			const Stack& st = stacks[INDEX_BOARD(x, y)];
-			int8_t top = st.top() * team;
-			if (top <= 0) continue ;
 
-			// cache some locals...
-			const int stack_height = st.size();
-			auto bits = st.stack();
-			if (team < 0) bits = ~bits;
+			int8_t top = st.top();
+			if (top == 0) continue;
 
-			// compute the range of the stack
-			int range;
-			int captives = stack_height - bits.count();
-			if (stack_height == 1) {
-				range = 1;
-				captives = 0;
+			double stratValue = 0;
+
+			const double maxStrategicValue = 5 * 1.5 + 5 + NEGIHBORS_BUFF * 2;
+
+			// value for the stack count and range and all that jazzzyness.
+			const std::bitset<48> whitePieces = st.stack();
+			const std::bitset<48> blackPieces = ~whitePieces;
+
+			int numWhitePieces = whitePieces.count() - (whitePieces >> 5).count();
+			int numBlackPieces = blackPieces.count() - (blackPieces >> 5).count();
+
+
+			if (top > 0) {
+				stratValue += numWhitePieces * 1.5 - numBlackPieces;
 			} else {
-				range = bits.count() - (bits >> 5).count();
+				stratValue += numBlackPieces * 1.5 - numWhitePieces;
 			}
 
-			// acually add up the value
-			switch (top) {
-			case PIECE_FLAT: {
-				strats += FLAT_MATERIAL_VALUE;
-				strats += range * STACK_RANGE_BUF;
-				strats -= captives * CAPTIVE_PENALTY;
-
-				// add centrality
-				strats -= (abs(x - 2) + abs(y - 2)) * CENTRALITY_VALUE;
-
-				break ;
+			// buff for having neighbors of the same color
+			if (x > 0 && stacks[INDEX_BOARD(x - 1, y)].top() * top > 0) {
+				stratValue += 3;
 			}
-			case PIECE_WALL: {
-				// no raw material value... only positional value + control value.
-				strats += range * STACK_RANGE_BUF;
-				strats -= captives * CAPTIVE_PENALTY;
-
-				break ;
+			if (y > 0 && stacks[INDEX_BOARD(x, y - 1)].top() * top > 0) {
+				stratValue += 3;
 			}
-			case PIECE_CAP: {
-				if (st.size() >= 2) {
-					if (bits[stack_height - 2] == 1) {
-						strats += HARD_CAP_BUFF;
-					}
-				}
 
-				strats += range * STACK_RANGE_BUF * CAP_STRATEGIC_MULTIPLIER;
-				strats -= captives * CAPTIVE_PENALTY;
-
-				// add centrality
-				strats -= (abs(x - 2) + abs(y - 2)) * CENTRALITY_VALUE * CAP_STRATEGIC_MULTIPLIER;
-
-				break ;
+			// buff for a hard cap if possible!
+			if (top == PIECE_CAP) {
+				if (whitePieces[st.size() - 2] == 1)
+					stratValue += 5;
+			} else if (top == -PIECE_CAP) {
+				if (blackPieces[st.size() - 2] == 1)
+					stratValue += 5;
 			}
+
+			// placement value
+			stratValue -= (abs(x - 2) + abs(y - 2)) * 0.5;
+
+			// material value
+			stratValue *= 1.0 / maxStrategicValue;
+
+			if (top > 0) {
+				score += stratValue + COVERAGE_VALUE;
+			}
+			else {
+				score -= stratValue + COVERAGE_VALUE;
 			}
 		}
 	}
-
-	return strats;
+	return score;
 }
 
 /**
 	djikstra's algorithm based scoring function
 */
-
-struct djkscore_node {
-	typedef int16_t distance_t;
-	const static distance_t maxDistance = 10000;
-	bool explored = false;
+struct djknode {
+	const static int16_t max_dist = 10000;
+	bool visited = false;
 	int8_t x = -1;
 	int8_t y = -1;
-	distance_t cost = 0;
-	distance_t distance = maxDistance;
+	int16_t cost = max_dist;
+	int16_t distance = max_dist;
+	int16_t heuristic = Board::SIZE;
+
+	template<typename T, int dx, int dy>
+	void visit_neighbor(djknode* grid, T& queue) {
+		if (x + dx >= 0 && x + dx < Board::SIZE && y + dy >= 0 && y + dy < Board::SIZE) {
+			int ind = INDEX_BOARD(x + dx, y + dy);
+			int8_t distTentative = grid[ind].cost + distance;
+			if (distTentative < grid[ind].distance) grid[ind].distance = distTentative;
+
+			if (!grid[ind].visited) {
+				// enqueue if not yet vistied
+				queue.push(&grid[ind]);
+			}
+		}
+	}
 
 	template<typename T>
-	void enqueue_neighbors(djkscore_node* grid, T& pqueue) {
-		// TODO: better encapsulation here
-
-		if (x > 0 && !grid[INDEX_BOARD(x - 1, y)].explored) {
-			int ind = INDEX_BOARD(x - 1, y);
-			grid[ind].explored = true;
-			distance_t tentativeDistance = grid[ind].cost + distance;
-			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
-			pqueue.push(&grid[ind]);
-		}
-
-		if (x < Board::SIZE - 1 && !grid[INDEX_BOARD(x + 1, y)].explored) {
-			int ind = INDEX_BOARD(x + 1, y);
-			grid[ind].explored = true;
-			distance_t tentativeDistance = grid[ind].cost + distance;
-			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
-			pqueue.push(&grid[ind]);
-		}
-
-		if (y > 0 && !grid[INDEX_BOARD(x, y - 1)].explored) {
-			int ind = INDEX_BOARD(x, y - 1);
-			grid[ind].explored = true;
-			distance_t tentativeDistance = grid[ind].cost + distance;
-			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
-			pqueue.push(&grid[ind]);
-		}
-
-		if (y < Board::SIZE - 1 && !grid[INDEX_BOARD(x, y + 1)].explored) {
-			int ind = INDEX_BOARD(x, y + 1);
-			grid[ind].explored = true;
-			distance_t tentativeDistance = grid[ind].cost + distance;
-			if (tentativeDistance < grid[ind].distance) grid[ind].distance = tentativeDistance;
-			pqueue.push(&grid[ind]);
-		}
-
-		// std::cout << "x: " << x << " y: " << y << " distance: " << distance << std::endl;
-		explored = true;
+	void visit_neighbors(djknode* grid, T& queue) {
+		visited = true;
+		visit_neighbor<T, 1, 0>(grid, queue);
+		visit_neighbor<T, 0, 1>(grid, queue);
+		visit_neighbor<T, -1, 0>(grid, queue);
+		visit_neighbor<T, 0, -1>(grid, queue);
 	}
 };
 
-bool operator < (const djkscore_node& a, const djkscore_node& b) {
+bool operator < (const djknode& a, const djknode& b) {
+	// return a.distance + a.heuristic < b.distance + b.heuristic;
 	return a.distance < b.distance;
 }
 
 int Board::getDjikstraScore(int player, int *horizontalDistance, int *verticalDistance) const {
 	assert(player == 1 || player == -1);
 
-	djkscore_node::distance_t horDist = djkscore_node::maxDistance;
-	djkscore_node::distance_t vertDist = djkscore_node::maxDistance;
-	djkscore_node graph[Board::SQUARES];
-	std::priority_queue<djkscore_node*, std::vector<djkscore_node*>, std::greater<djkscore_node*>> queue;
+	int vertDist = djknode::max_dist;
+	int horDist = djknode::max_dist;
+
+	djknode graph[Board::SQUARES];
+	std::priority_queue<djknode*, std::vector<djknode*>, std::greater<djknode*>> queue;
 
 	// setup the graph
 	for (int y = 0; y < Board::SIZE; ++y) {
@@ -380,13 +353,13 @@ int Board::getDjikstraScore(int player, int *horizontalDistance, int *verticalDi
 			int i = INDEX_BOARD(x, y);
 			graph[i].x = x;
 			graph[i].y = y;
-			graph[i].explored = false;
-			graph[i].distance = djkscore_node::maxDistance;
+			graph[i].visited = false;
+			graph[i].distance = djknode::max_dist;
 
 			int8_t top = stacks[i].top() * player;
 			if (top == PIECE_WALL || top == -PIECE_WALL) {
 				// TODO: tweek the distance penalty assigned to walls
-				graph[i].cost = 5;
+				graph[i].cost = 2;
 			} else if (top > 0) {
 				graph[i].cost = 0;
 			} else {
@@ -399,13 +372,15 @@ int Board::getDjikstraScore(int player, int *horizontalDistance, int *verticalDi
 	for (int i = 0; i < Board::SIZE; ++i) {
 		int p = INDEX_BOARD(i, 0); // the top row.
 		graph[p].distance = graph[p].cost;
+		// graph[p].heuristic = Board::SIZE - i / Board::SIZE;
+		graph[p].visited = true;
 		queue.push(&graph[p]); // push the node into the queue...
 	}
 
 	while (!queue.empty()) {
-		djkscore_node* cur = queue.top();
+		djknode* cur = queue.top();
 		queue.pop();
-		cur->enqueue_neighbors(graph, queue);
+		cur->visit_neighbors(graph, queue);
 	}
 
 	for (int i = 0; i < Board::SIZE; ++i) {
@@ -417,20 +392,22 @@ int Board::getDjikstraScore(int player, int *horizontalDistance, int *verticalDi
 	// initialize the queue for a left -> right scan
 	for (int i = 0; i < Board::SQUARES; ++i) {
 		// clear the state information from the graph that was set in previous run
-		graph[i].explored = false;
-		graph[i].distance = djkscore_node::maxDistance;
+		graph[i].visited = false;
+		graph[i].distance = djknode::max_dist;
 	}
 
 	for (int i = 0; i < Board::SIZE; ++i) {
 		int p = INDEX_BOARD(0, i); // the top row.
 		graph[p].distance = graph[p].cost;
+		// graph[p].heuristic = Board::SIZE - i % Board::SIZE;
+		graph[p].visited = true;
 		queue.push(&graph[p]); // push the node into the queue...
 	}
 
 	while (!queue.empty()) {
-		djkscore_node* cur = queue.top();
+		djknode* cur = queue.top();
 		queue.pop();
-		cur->enqueue_neighbors(graph, queue);
+		cur->visit_neighbors(graph, queue);
 	}
 
 	for (int i = 0; i < Board::SIZE; ++i) {
