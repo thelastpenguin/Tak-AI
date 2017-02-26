@@ -29,8 +29,8 @@ Board::Board() {
 
 	capstones[0] = 1;
 	capstones[1] = 1;
-	piecesleft[0] = 21;
-	piecesleft[1] = 21;
+	piecesleft[0] = PIECES_PER_SIDE;
+	piecesleft[1] = PIECES_PER_SIDE;
 }
 
 Board::Board(const std::string& tbgEncoding) : Board() {
@@ -173,151 +173,43 @@ std::ostream& operator << (std::ostream& out, const Board& board) {
 	return out;
 };
 
-bool Board::isTerminalState(int8_t team) const {
-	assert(team == 1 || team == -1);
-	return getDjikstraScore(team) == 0 || piecesleft[team > 0 ? 0 : 1] == 0;
-}
-
-double Board::getScore() const {
-	// NOTE: this should shift from early, to mid, to end game score weightings
-
-	int whiteHorDist;
-	int whiteVertDist;
-	int blackHorDist;
-	int blackVertDist;
-
-	// determine the winner from running out of pieces
-	if (piecesleft[1] == 0 || piecesleft[0] == 0) {
+int Board::getWinner() const {
+	int djikstraWhite = this->getDjikstraScore(1);
+	if (djikstraWhite == 0) return 1;
+	int djikstraBlack = this->getDjikstraScore(-1);
+	if (djikstraBlack == 0) return -1;
+	if (piecesleft[0] == 0 || piecesleft[1] == 0) {
 		int count = 0;
 		for (int i : range(0, Board::SQUARES)) {
 			if (stacks[i].top() != 0)
 				count += stacks[i].top() > 0 ? 1 : -1;
 		}
-		return count == 0 ? 0 : (count > 0 ? 100000.0 : -100000.0);
+		if (count == 0) return playerTurn;
+		return count > 0 ? 1 : -1;
 	}
-
-	// determine the djikstra score
-	getDjikstraScore(1, &whiteHorDist, &whiteVertDist);
-	getDjikstraScore(-1, &blackHorDist, &blackVertDist);
-
-	if (whiteHorDist == 0 || whiteVertDist == 0) return 100000.0;
-	if (blackHorDist == 0 || blackHorDist == 0) return -100000.0;
-
-	// determine the djkistra' score of the board
-	whiteHorDist = Board::SIZE - whiteHorDist;
-	whiteVertDist = Board::SIZE - whiteVertDist;
-	blackHorDist = Board::SIZE - blackHorDist;
-	blackVertDist = Board::SIZE - blackVertDist;
-	// whiteHorDist *= whiteHorDist;
-	// whiteVertDist *= whiteVertDist;
-	// blackHorDist *= blackHorDist;
-	// blackVertDist *= blackVertDist;
-
-	double djikstraScore = (whiteHorDist + whiteVertDist) - (blackHorDist + blackVertDist);
-	double materialScore = getMaterialScore();
-
-	if (isLateGame()) {
-		return djikstraScore + materialScore * 4;
-	} else {
-		return djikstraScore + materialScore;
-	}
-
-}
-
-/**
-	material scoring algorithm
-*/
-
-const int CAP_MOBILITY_WEIGHT = 0;
-
-// NOTE: towards late game material score becomes MUCH more important... yeah.
-//       high value in having more material than the opponent / having fewer pieces.
-double Board::getMaterialScore() const {
-	const double COVERAGE_VALUE = 1.0;
-	const double NEGIHBORS_BUFF = 3.0;
-
-	double score = 0;
-
-	for (int y = 0; y < Board::SIZE; ++y) {
-		for (int x = 0; x < Board::SIZE; ++x) {
-			const Stack& st = stacks[INDEX_BOARD(x, y)];
-
-			int8_t top = st.top();
-			if (top == 0) continue;
-
-			double stratValue = 0;
-
-			const double maxStrategicValue = 5 * 1.5 + 5 + NEGIHBORS_BUFF * 2;
-
-			// value for the stack count and range and all that jazzzyness.
-			const std::bitset<48> whitePieces = st.stack();
-			const std::bitset<48> blackPieces = ~whitePieces;
-
-			int numWhitePieces = whitePieces.count() - (whitePieces >> 5).count();
-			int numBlackPieces = blackPieces.count() - (blackPieces >> 5).count();
-
-
-			if (top > 0) {
-				stratValue += numWhitePieces * 1.5 - numBlackPieces;
-			} else {
-				stratValue += numBlackPieces * 1.5 - numWhitePieces;
-			}
-
-			// buff for having neighbors of the same color
-			if (x > 0 && stacks[INDEX_BOARD(x - 1, y)].top() * top > 0) {
-				stratValue += 3;
-			}
-			if (y > 0 && stacks[INDEX_BOARD(x, y - 1)].top() * top > 0) {
-				stratValue += 3;
-			}
-
-			// buff for a hard cap if possible!
-			if (top == PIECE_CAP) {
-				if (whitePieces[st.size() - 2] == 1)
-					stratValue += 5;
-			} else if (top == -PIECE_CAP) {
-				if (blackPieces[st.size() - 2] == 1)
-					stratValue += 5;
-			}
-
-			// placement value
-			stratValue -= (abs(x - 2) + abs(y - 2)) * 0.5;
-
-			// material value
-			stratValue *= 1.0 / maxStrategicValue;
-
-			if (top > 0) {
-				score += stratValue + COVERAGE_VALUE;
-			}
-			else {
-				score -= stratValue + COVERAGE_VALUE;
-			}
-		}
-	}
-	return score;
+	return 0;
 }
 
 /**
 	djikstra's algorithm based scoring function
 */
 struct djknode {
-	const static int16_t max_dist = 10000;
+	const static int16_t max_dist = INT16_MAX;
 	bool visited = false;
 	int8_t x = -1;
 	int8_t y = -1;
 	int16_t cost = max_dist;
 	int16_t distance = max_dist;
-	int16_t heuristic = Board::SIZE;
 
-	template<typename T, int dx, int dy>
+	template<int8_t dx, int8_t dy, typename T>
 	void visit_neighbor(djknode* grid, T& queue) {
 		if (x + dx >= 0 && x + dx < Board::SIZE && y + dy >= 0 && y + dy < Board::SIZE) {
 			int ind = INDEX_BOARD(x + dx, y + dy);
-			int8_t distTentative = grid[ind].cost + distance;
-			if (distTentative < grid[ind].distance) grid[ind].distance = distTentative;
-
 			if (!grid[ind].visited) {
-				// enqueue if not yet vistied
+				int8_t distTentative = grid[ind].cost + distance;
+				if (distTentative < grid[ind].distance) {
+					grid[ind].distance = distTentative;
+				}
 				queue.push(&grid[ind]);
 			}
 		}
@@ -326,101 +218,73 @@ struct djknode {
 	template<typename T>
 	void visit_neighbors(djknode* grid, T& queue) {
 		visited = true;
-		visit_neighbor<T, 1, 0>(grid, queue);
-		visit_neighbor<T, 0, 1>(grid, queue);
-		visit_neighbor<T, -1, 0>(grid, queue);
-		visit_neighbor<T, 0, -1>(grid, queue);
+		visit_neighbor<1, 0>(grid, queue);
+		visit_neighbor<0, 1>(grid, queue);
+		visit_neighbor<-1, 0>(grid, queue);
+		visit_neighbor<0, -1>(grid, queue);
 	}
 };
 
-bool operator < (const djknode& a, const djknode& b) {
-	// return a.distance + a.heuristic < b.distance + b.heuristic;
-	return a.distance < b.distance;
+int getShortestPath(int16_t costs[Board::SQUARES]) {
+	djknode graph[Board::SQUARES];
+
+	auto compareFunc = [](djknode* a, djknode* b) {
+		return a->distance > b->distance;
+	};
+	std::priority_queue<djknode*, std::vector<djknode*>, decltype(compareFunc)> queue(compareFunc);
+
+	for (int i = 0; i < Board::SQUARES; ++i) {
+		graph[i].x = i % Board::SIZE;
+		graph[i].y = i / Board::SIZE;
+		graph[i].cost = costs[i];
+		graph[i].distance = INT16_MAX;
+		graph[i].visited = false;
+	}
+
+	for (int i = 0; i < Board::SIZE; ++i) {
+		graph[i].distance = graph[i].cost;
+		graph[i].visit_neighbors(graph, queue);
+	}
+
+	while (!queue.empty()) {
+		djknode* top = queue.top();
+		queue.pop();
+
+		top->visit_neighbors(graph, queue);
+	}
+
+	int16_t minDist = INT16_MAX;
+	for (int i = Board::SQUARES - Board::SIZE; i < Board::SQUARES; ++i) {
+		if (graph[i].distance < minDist)
+			minDist = graph[i].distance;
+	}
+
+	return minDist;
 }
 
 int Board::getDjikstraScore(int player, int *horizontalDistance, int *verticalDistance) const {
-	assert(player == 1 || player == -1);
+	int horDist;
+	int vertDist;
 
-	int vertDist = djknode::max_dist;
-	int horDist = djknode::max_dist;
-
-	djknode graph[Board::SQUARES];
-	std::priority_queue<djknode*, std::vector<djknode*>, std::greater<djknode*>> queue;
-
-	// setup the graph
+	int16_t costsTopBottom[Board::SQUARES];
+	int16_t costsLeftRight[Board::SQUARES];
 	for (int y = 0; y < Board::SIZE; ++y) {
 		for (int x = 0; x < Board::SIZE; ++x) {
-			int i = INDEX_BOARD(x, y);
-			graph[i].x = x;
-			graph[i].y = y;
-			graph[i].visited = false;
-			graph[i].distance = djknode::max_dist;
-
-			int8_t top = stacks[i].top() * player;
-			if (top == PIECE_WALL || top == -PIECE_WALL) {
-				// TODO: tweek the distance penalty assigned to walls
-				graph[i].cost = 2;
-			} else if (top > 0) {
-				graph[i].cost = 0;
-			} else {
-				graph[i].cost = 1;
-			}
+			int8_t top = stacks[INDEX_BOARD(x, y)].top();
+			// TODO: update
+			int16_t cost = (top * player == PIECE_FLAT || top * player == PIECE_CAP) ? 0 : 1; // ((top == PIECE_WALL || top == -PIECE_WALL) ? 1 : 1);
+			costsTopBottom[INDEX_BOARD(x, y)] = cost;
+			costsLeftRight[INDEX_BOARD(y, x)] = cost;
 		}
 	}
 
-	// initialize the queue for a top -> bottom scan
-	for (int i = 0; i < Board::SIZE; ++i) {
-		int p = INDEX_BOARD(i, 0); // the top row.
-		graph[p].distance = graph[p].cost;
-		// graph[p].heuristic = Board::SIZE - i / Board::SIZE;
-		graph[p].visited = true;
-		queue.push(&graph[p]); // push the node into the queue...
-	}
+	horDist = getShortestPath(costsLeftRight);
+	vertDist = getShortestPath(costsTopBottom);
 
-	while (!queue.empty()) {
-		djknode* cur = queue.top();
-		queue.pop();
-		cur->visit_neighbors(graph, queue);
-	}
-
-	for (int i = 0; i < Board::SIZE; ++i) {
-		int p = INDEX_BOARD(i, Board::SIZE - 1); // the bottom row
-		if (graph[p].distance < vertDist)
-			vertDist = graph[p].distance;
-	}
-
-	// initialize the queue for a left -> right scan
-	for (int i = 0; i < Board::SQUARES; ++i) {
-		// clear the state information from the graph that was set in previous run
-		graph[i].visited = false;
-		graph[i].distance = djknode::max_dist;
-	}
-
-	for (int i = 0; i < Board::SIZE; ++i) {
-		int p = INDEX_BOARD(0, i); // the top row.
-		graph[p].distance = graph[p].cost;
-		// graph[p].heuristic = Board::SIZE - i % Board::SIZE;
-		graph[p].visited = true;
-		queue.push(&graph[p]); // push the node into the queue...
-	}
-
-	while (!queue.empty()) {
-		djknode* cur = queue.top();
-		queue.pop();
-		cur->visit_neighbors(graph, queue);
-	}
-
-	for (int i = 0; i < Board::SIZE; ++i) {
-		int p = INDEX_BOARD(Board::SIZE - 1, i); // the bottom row
-		if (graph[p].distance < horDist)
-			horDist = graph[p].distance;
-	}
-
-	// pass back results
 	if (horizontalDistance)
 		*horizontalDistance = horDist;
 	if (verticalDistance)
 		*verticalDistance = vertDist;
 
-	return vertDist < horDist ? vertDist : horDist;
+	return std::min(horDist, vertDist);
 };

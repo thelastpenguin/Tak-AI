@@ -22,6 +22,7 @@ class Board;
 class Stack;
 class Move;
 
+extern const char * piece_to_string(int8_t);
 
 class Stack {
 private:
@@ -88,6 +89,8 @@ public:
 		// but probabilistically we should never even see a collision so this is fine.
 		return moveid == other.moveid && board_hash == other.board_hash;
 	}
+
+	std::string toString() const;
 };
 
 class Board {
@@ -95,6 +98,8 @@ public:
 	// TODO: enable support for multiple board sizes... ergh.
 	const static int SIZE = 5;
 	const static int SQUARES = 25;
+
+	const static int PIECES_PER_SIDE = 21;
 
 	int moveno;
 	int playerTurn;
@@ -141,21 +146,7 @@ public:
 	// the least cost distance from one side to the other...
 	int getDjikstraScore(int player, int *horDistance = nullptr, int *vertDistance = nullptr) const;
 
-	// material score
-	double getMaterialScore() const;
-
-	// some ratio of the two scoring functions based on progress through the game
-	double getScore() const;
-
-	bool isTerminalState(int8_t team) const; // returns 0 if no winner, -1 if black winner, 1 if white winner
-	int isTerminalState() const {
-		if (isTerminalState(1))
-			return 1;
-		else if(isTerminalState(-1))
-			return -1;
-		else
-			return 0;
-	}
+	int getWinner() const; // returns -1 or +1 for winner otherwise 0
 
 	std::string toTBGEncoding() const;
 

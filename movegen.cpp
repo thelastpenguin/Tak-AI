@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <sstream>
 #include "board.h"
 #include "helpers.h"
 
@@ -15,7 +16,7 @@ struct MoveInternal {
 
 	uint32_t moveid;
 
-	int8_t type;
+	int8_t type = 0;
 
 	int8_t position;
 	int8_t piece;
@@ -23,6 +24,22 @@ struct MoveInternal {
 	int8_t split_count;
 	int8_t split_positions[Board::SIZE];
 	int8_t split_sizes[Board::SIZE];
+
+	std::string toString() {
+		std::stringstream ss;
+
+		if (type == TYPE_PLACE) {
+			ss << "place " << (char)('A' + position % Board::SIZE) << (int) 1 + position / Board::SIZE << piece_to_string(piece) << std::endl;
+		} else if (type == TYPE_SPLIT || type == TYPE_SPLIT_SQUASH) {
+			ss << "split " << (char)('A' + position % Board::SIZE) << (int) 1 + position / Board::SIZE << std::endl;
+			for (int i = 0; i < split_count; ++i) {
+				int position = split_positions[i];
+				ss << "\t#" << (int) split_sizes[i] << " - " << (char)('A' + position % Board::SIZE) << (int) 1 + position / Board::SIZE << std::endl;
+			}
+		}
+
+		return ss.str();
+	}
 
 	inline static int8_t piece_color(const Board& board) {
 		return board.placementColor();
@@ -43,16 +60,24 @@ struct MoveInternal {
 				exit(0);
 			}
 		} else if(type == TYPE_SPLIT) {
-			const int8_t landingOn = board.stacks[split_positions[split_count - 1]].top();
-			return landingOn == 0 || landingOn == -PIECE_FLAT || landingOn == PIECE_FLAT;
+			for (int i = 0; i < split_count; ++i) {
+				const int8_t landingOn = board.stacks[split_positions[i]].top();
+				if (landingOn == PIECE_WALL || landingOn == -PIECE_WALL || landingOn == PIECE_CAP || landingOn == -PIECE_CAP) return false;
+			}
+			return true;
 		} else if (type == TYPE_SPLIT_SQUASH) {
-			const int8_t landingOn = std::abs(board.stacks[split_positions[split_count - 1]].top());
-			return landingOn == PIECE_WALL;
+			for (int i = 0; i < split_count - 1; ++i) {
+				const int8_t landingOn = board.stacks[split_positions[i]].top();
+				if (landingOn == PIECE_WALL || landingOn == -PIECE_WALL || landingOn == PIECE_CAP || landingOn == -PIECE_CAP) return false;
+			}
+			int8_t top = board.stacks[split_positions[split_count - 1]].top();
+			return top == PIECE_WALL || top == -PIECE_WALL;
 		}
 		return false;
 	}
 
 	void apply(Board& board) const {
+		assert(type != 0);
 		const int8_t piece_color = MoveInternal::piece_color(board);
 		board.playerTurn = -board.playerTurn;
 		board.moveno++;
@@ -75,10 +100,11 @@ struct MoveInternal {
 	}
 
 	void revert(Board& board) const {
+		assert(type != 0);
 		board.moveno--;
 		board.playerTurn = -board.playerTurn;
+		const int8_t piece_color = MoveInternal::piece_color(board);
 		if (type == TYPE_PLACE) {
-			const int8_t piece_color = MoveInternal::piece_color(board);
 			board.remove(position);
 			switch (piece * piece_color) {
 			case PIECE_CAP: board.capstones[0]++; break ;
@@ -96,6 +122,9 @@ struct MoveInternal {
 		}
 
 		if (type == TYPE_SPLIT_SQUASH) {
+			board.remove(position);
+			board.place(position, PIECE_CAP * piece_color);
+
 			const int8_t last = split_positions[split_count - 1];
 			const int8_t wall = board.stacks[last].top() > 0 ? PIECE_WALL : -PIECE_WALL;
 			board.remove(last);
@@ -257,17 +286,15 @@ std::vector<Move> Board::get_moves(int8_t team) const {
 			int limit = 5 < stack.size() ? 5 : stack.size();
 			for (int j = 1; j <= limit && !stop; ++j) {
 				for (MoveInternal& move : movegen::cuts[i][j]) {
-					if (move.can_move(*this)) {
+					if (move.can_move(*this))
 						moves.push_back(Move(boardhash, move.moveid));
-					} else
-						stop = true;
 				}
-				if (stop && top * team == PIECE_CAP)
+				if (top * team == PIECE_CAP) {
 					for (MoveInternal& move : movegen::cuts_flatten[i][j]) {
-						if (move.can_move(*this)) {
+						if (move.can_move(*this))
 							moves.push_back(Move(boardhash, move.moveid));
-						}
 					}
+				}
 			}
 		}
 	}
@@ -281,4 +308,8 @@ void Move::apply(Board& board) const {
 
 void Move::revert(Board& board) const {
 	movegen::all_moves[moveid].revert(board);
+}
+
+std::string Move::toString() const {
+	return movegen::all_moves[moveid].toString();
 }
