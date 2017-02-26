@@ -31,6 +31,10 @@ struct MoveInternal {
 		if (type == TYPE_PLACE) {
 			ss << "place " << (char)('A' + position % Board::SIZE) << (int) 1 + position / Board::SIZE << piece_to_string(piece) << std::endl;
 		} else if (type == TYPE_SPLIT || type == TYPE_SPLIT_SQUASH) {
+			if (type == TYPE_SPLIT_SQUASH) {
+				ss << "ITS A SQUASHER!" << std::endl;
+			}
+
 			ss << "split " << (char)('A' + position % Board::SIZE) << (int) 1 + position / Board::SIZE << std::endl;
 			for (int i = 0; i < split_count; ++i) {
 				int position = split_positions[i];

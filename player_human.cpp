@@ -38,8 +38,18 @@ Board HumanPlayer::makeAMove(Board board) {
 	}
 
 	while (true) {
+		std::cout << "Current board state for inspection: " << board;
+
 		std::cout << " -> ";
 		if (!std::getline(std::cin, line)) break ;
+
+		clearBoard(board, std::cout);
+		clearLastLine(std::cout);
+
+		if (line == "") {
+			continue;
+		}
+		std::cout << " -> " << line << std::endl;
 
 		std::istringstream iss(line);
 		std::string command;
@@ -150,8 +160,6 @@ Board HumanPlayer::makeAMove(Board board) {
 			}
 		}
 
-		std::cout << boardCopy << std::endl;
-
 		if  (boardCopy != board) {
 			if (validStates.find(boardCopy.hash()) == validStates.end()) {
 				std::cerr << "Invalid move!" << std::endl;
@@ -171,6 +179,7 @@ Board HumanPlayer::makeAMove(Board board) {
 				break ;
 			}
 		}
+
 	}
 
 	return board;

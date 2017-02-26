@@ -61,9 +61,7 @@ Board MinmaxPlayer::makeAMove(Board board) {
 	double score = minmax(board, depth, &move);
 	std::cout << "AI Player generated move with score: " << score << std::endl;
 	std::cout << "\tcutoffs: " << cutoffs - lastCutoffs << std::endl;
-	std::cout << board << std::endl;
 	move.apply(board);
-	std::cout << board << std::endl;
 	std::cout << "board material score: " << scoreMaterial(board) << std::endl;
 	std::cout << "move: " << move.toString() << std::endl;
 	return board;

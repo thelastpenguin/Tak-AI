@@ -22,11 +22,12 @@ int main(int argc, const char **argv) {
 	while (true) {
 		Player *cur = board.playerTurn == 1 ? white : black;
 
-		std::cout << "\n\n\n\n" << std::endl;
 		board = cur->makeAMove(board);
 		std::cout << board;
 		std::cout << "\tdjikstra white: " << board.getDjikstraScore(1) << std::endl;
 		std::cout << "\tdjikstra black: " << board.getDjikstraScore(-1) << std::endl;
+
+		std::cout << "\n\n\n-------------- NEXT TURN ----------------\n\n\n" << std::endl;
 
 		if (board.getWinner() != 0) break ;
 	}
