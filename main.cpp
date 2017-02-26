@@ -17,7 +17,7 @@ int main(int argc, const char **argv) {
 	// NOTE: Adjacent corner is best, but mix in opposite corner to keep them on their toes
 
 	Player *white = new HumanPlayer();
-	Player *black = new MinmaxPlayer(2);
+	Player *black = new MinmaxPlayer(4);
 
 	while (true) {
 		Player *cur = board.playerTurn == 1 ? white : black;

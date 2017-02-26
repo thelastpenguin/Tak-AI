@@ -5,51 +5,51 @@
 
 
 int cutoffs = 0;
-double MinmaxPlayer::minmax(Board& board, int depth, Move* result) {
+double MinmaxPlayer::minmax(Board& board, int depth, Move* result, double alpha, double beta) {
 	int winner = board.getWinner();
-	if (winner != 0) return winner * 1000000.0 * (depth + 1);
+	if (winner != 0) return winner * WIN_SCORE;
 	if (depth == 0) return scoreBoard(board);
 
 	std::vector<Move> moves = board.get_moves();
 
 	if (board.playerTurn > 0) {
-		double max = -std::numeric_limits<double>::max();
+		double max = -MAX_SCORE;
 		for (Move& move : moves) {
 			move.apply(board);
-			double score = this->minmax(board, depth - 1, nullptr);
+			double score = this->minmax(board, depth - 1, nullptr, alpha, beta);
 			move.revert(board);
-
-			// if (score > alpha) alpha = score;
-			// if (beta <= alpha) {
-			// 	cutoffs++;
-			// 	break;
-			// }
 
 	        if (score > max || (score == max && rand() % 2 == 0)) {
 	            if (result)
 	                *result = move;
 	            max = score;
 	        }
+
+			if (score > alpha) alpha = score;
+			if (beta <= alpha) {
+				cutoffs++;
+				break;
+			}
 	    }
 		return max;
 	} else {
-		double min = std::numeric_limits<double>::max();
+		double min = MAX_SCORE;
 		for (Move& move : moves) {
 	        move.apply(board);
-	        double score = this->minmax(board, depth - 1, nullptr);
+	        double score = this->minmax(board, depth - 1, nullptr, alpha, beta);
 	        move.revert(board);
-
-			// if (score < beta) beta = score;
-			// if (beta <= alpha) {
-			// 	cutoffs ++;
-			// 	break ;
-			// }
 
 	        if (score < min || (score == min && rand() % 2 == 0)) {
 	            if (result)
 	                *result = move;
 	            min = score;
 	        }
+
+			if (score < beta) beta = score;
+			if (beta <= alpha) {
+				cutoffs++;
+				break ;
+			}
 	    }
 		return min;
 	}
